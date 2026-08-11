@@ -1,8 +1,9 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 $Scripts = @(
     (Join-Path $RepoRoot 'src\yt-seb.ps1'),
+    (Join-Path $RepoRoot 'src\Resolve-SongMetadata.ps1'),
     (Join-Path $RepoRoot 'src\Uninstall-yt-seb.ps1'),
     (Join-Path $RepoRoot 'install.ps1'),
     (Join-Path $RepoRoot 'installer\build.ps1')

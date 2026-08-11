@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
     [string[]]$Arguments
 )
@@ -33,6 +33,21 @@ function Get-AvailablePath([string]$Path) {
     throw 'Could not create a unique output filename.'
 }
 
+function Find-ToolPath {
+    param(
+        [Parameter(Mandatory)] [string]$LocalName,
+        [Parameter(Mandatory)] [string[]]$CommandNames
+    )
+
+    $LocalPath = Join-Path $PSScriptRoot $LocalName
+    if (Test-Path -LiteralPath $LocalPath -PathType Leaf) { return $LocalPath }
+    foreach ($CommandName in $CommandNames) {
+        $Command = Get-Command $CommandName -ErrorAction SilentlyContinue
+        if ($Command) { return $Command.Source }
+    }
+    return $null
+}
+
 $SongInfo = $false
 $QueryParts = @()
 foreach ($Argument in @($Arguments)) {
@@ -48,19 +63,22 @@ if (-not $QueryParts -or [string]::IsNullOrWhiteSpace(($QueryParts -join ' '))) 
 }
 
 $Query = ($QueryParts -join ' ').Trim()
-$YtDlp = Join-Path $PSScriptRoot 'yt-dlp.exe'
-$Ffmpeg = Join-Path $PSScriptRoot 'ffmpeg.exe'
-$Deno = Join-Path $PSScriptRoot 'deno.exe'
+$YtDlp = Find-ToolPath -LocalName 'yt-dlp.exe' -CommandNames @('yt-dlp.exe', 'yt-dlp')
+$Ffmpeg = Find-ToolPath -LocalName 'ffmpeg.exe' -CommandNames @('ffmpeg.exe', 'ffmpeg')
+$Deno = Find-ToolPath -LocalName 'deno.exe' -CommandNames @('deno.exe', 'deno')
+$Node = Find-ToolPath -LocalName 'node.exe' -CommandNames @('node.exe', 'node')
 $Analyzer = Join-Path $PSScriptRoot 'analyze-audio.mjs'
+$MetadataResolver = Join-Path $PSScriptRoot 'Resolve-SongMetadata.ps1'
 
-foreach ($RequiredFile in @($YtDlp, $Ffmpeg, $Deno)) {
-    if (-not (Test-Path -LiteralPath $RequiredFile)) {
-        Fail "Required installed file is missing: $RequiredFile. Run yt-seb Setup again."
+if (-not $YtDlp) { Fail 'yt-dlp was not found. Run yt-seb Setup again.' }
+if (-not $Ffmpeg) { Fail 'FFmpeg was not found. Run yt-seb Setup again.' }
+if (-not $Deno -and -not $Node) { Fail 'Neither Deno nor Node.js was found for YouTube processing.' }
+foreach ($SongInfoFile in @($Analyzer, $MetadataResolver)) {
+    if ($SongInfo -and -not (Test-Path -LiteralPath $SongInfoFile)) {
+        Fail "The song-information file is missing: $SongInfoFile. Run yt-seb Setup again."
     }
 }
-if ($SongInfo -and -not (Test-Path -LiteralPath $Analyzer)) {
-    Fail "The song-analysis file is missing: $Analyzer. Run yt-seb Setup again."
-}
+if ($SongInfo) { . $MetadataResolver }
 
 if (-not (Test-Path -LiteralPath $DownloadFolder)) {
     New-Item -ItemType Directory -Path $DownloadFolder -Force | Out-Null
@@ -70,7 +88,8 @@ Write-Host "Searching YouTube for: $Query" -ForegroundColor Cyan
 $WorkFolder = $null
 
 try {
-    $RuntimeArgs = @('--js-runtimes', "deno:$Deno")
+    $RuntimeArgs = if ($Deno) { @('--js-runtimes', "deno:$Deno") }
+        else { @('--js-runtimes', "node:$Node") }
     $SearchSpec = "ytsearch${SearchResultCount}:$Query"
     $SearchJson = & $YtDlp @RuntimeArgs --flat-playlist --dump-single-json `
         --skip-download --no-warnings --ignore-errors $SearchSpec
@@ -118,18 +137,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not read full video metadata.' }
     $Metadata = ($MetadataJson -join "`n") | ConvertFrom-Json
 
-    $SongTitle = if ($Metadata.track) { [string]$Metadata.track } else { [string]$Metadata.title }
-    $Artist = if ($Metadata.artist) { [string]$Metadata.artist }
-        elseif ($Metadata.creator) { [string]$Metadata.creator }
-        else { [string]$Metadata.uploader }
-
-    if (-not $Metadata.track -and $SongTitle -match '^\s*(.+?)\s+-\s+(.+?)\s*$') {
-        if (-not $Metadata.artist) { $Artist = $Matches[1] }
-        $SongTitle = $Matches[2]
-    }
-    $SongTitle = ($SongTitle -replace '(?i)\s*[\[(](official\s+)?(music\s+)?(video|audio|lyric(s)?)[\])].*$', '').Trim()
-    if ([string]::IsNullOrWhiteSpace($SongTitle)) { $SongTitle = [string]$Selected.title }
-    if ([string]::IsNullOrWhiteSpace($Artist)) { $Artist = 'Unknown Artist' }
+    $ResolvedMetadata = Resolve-SongMetadata -Metadata $Metadata -SelectedTitle ([string]$Selected.title)
+    $SongTitle = $ResolvedMetadata.SongTitle
+    $Artist = $ResolvedMetadata.Artist
+    Write-Host "Title:  $SongTitle"
+    Write-Host "Artist: $Artist (source: $($ResolvedMetadata.ArtistSource))"
 
     $WorkFolder = Join-Path ([IO.Path]::GetTempPath()) ("yt-seb-{0}" -f [guid]::NewGuid())
     New-Item -ItemType Directory -Path $WorkFolder -Force | Out-Null
@@ -147,8 +159,13 @@ try {
     & $Ffmpeg -y -hide_banner -loglevel error -i $SourceMp3 -ac 1 -ar 11025 -f f32le $PcmPath
     if ($LASTEXITCODE -ne 0) { throw 'FFmpeg could not prepare audio for analysis.' }
 
-    $AnalysisJson = & $Deno run --quiet "--allow-read=$PSScriptRoot,$WorkFolder" `
-        $Analyzer $PcmPath 11025
+    if ($Deno) {
+        $AnalysisJson = & $Deno run --quiet "--allow-read=$PSScriptRoot,$WorkFolder" `
+            $Analyzer $PcmPath 11025
+    }
+    else {
+        $AnalysisJson = & $Node $Analyzer $PcmPath 11025
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Local tempo/key analysis failed.' }
     $Analysis = ($AnalysisJson -join "`n") | ConvertFrom-Json
     $Tempo = [int]$Analysis.tempo
@@ -169,6 +186,7 @@ try {
         '-map', '0:a:0', '-c', 'copy', '-id3v2_version', '3',
         '-metadata', "title=$SongTitle",
         '-metadata', "artist=$Artist",
+        '-metadata', "album_artist=$Artist",
         '-metadata', 'album=YT-Seb',
         '-metadata', "TBPM=$Tempo",
         '-metadata', "TKEY=$Key",
@@ -194,4 +212,3 @@ finally {
         Remove-Item -LiteralPath $WorkFolder -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
-

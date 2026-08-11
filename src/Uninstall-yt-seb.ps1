@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 
 $InstallFolder = Join-Path $env:LOCALAPPDATA 'Programs\yt-seb'
