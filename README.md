@@ -1,6 +1,6 @@
 # yt-seb — development branch
 
-`yt-seb` is a Windows command-line YouTube song downloader. Enter a song title
+`yt-seb` is a Windows and macOS command-line YouTube song downloader. Enter a song title
 and it searches YouTube's top five relevance-ranked results, selects the first
 usable result, copies its URL to the clipboard, and saves MP3 audio in your
 Music folder.
@@ -21,6 +21,12 @@ Windows user and does not request administrator privileges.
 
 You may instead download the repository and run `dist/yt-seb Setup.exe`
 manually.
+
+## Install the development build on macOS
+
+The macOS build supports Apple silicon and Intel Macs, installs per-user without
+`sudo`, and presents an explicit **I Agree** confirmation dialog. See the
+[macOS installation and usage guide](mac/README.md).
 
 ## Use
 

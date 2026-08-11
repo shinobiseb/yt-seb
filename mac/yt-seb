@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+
+# yt-seb macOS command
+# It deliberately avoids eval and passes every user-controlled
+# value as one quoted argument to yt-dlp, FFmpeg, or the local JavaScript helpers.
+set -euo pipefail
+
+APP_DIR="${YT_SEB_APP_DIR:-$HOME/.local/share/yt-seb}"
+DOWNLOAD_DIR="${YT_SEB_MUSIC_DIR:-$HOME/Music}"
+SEARCH_RESULT_COUNT=5
+
+fail() {
+  printf 'Error: %s\n' "$1" >&2
+  exit 1
+}
+
+need_file() {
+  [ -f "$1" ] || fail "Required yt-seb file is missing: $1. Run the macOS installer again."
+}
+
+command_path() {
+  local name=$1 candidate
+  candidate="$(command -v "$name" 2>/dev/null || true)"
+  if [ -n "$candidate" ]; then printf '%s\n' "$candidate"; return; fi
+  for candidate in "/opt/homebrew/bin/$name" "/usr/local/bin/$name"; do
+    if [ -x "$candidate" ]; then printf '%s\n' "$candidate"; return; fi
+  done
+}
+
+YT_DLP="$(command_path yt-dlp)"
+FFMPEG="$(command_path ffmpeg)"
+DENO="$(command_path deno)"
+NODE="$(command_path node)"
+
+if [ -n "$DENO" ] && ! "$DENO" --version >/dev/null 2>&1; then
+  DENO=''
+fi
+if [ -n "$NODE" ]; then
+  NODE_VERSION="$("$NODE" --version 2>/dev/null || true)"
+  NODE_MAJOR=${NODE_VERSION#v}
+  NODE_MAJOR=${NODE_MAJOR%%.*}
+  case "$NODE_MAJOR" in *[!0-9]*|'') NODE='' ;; *) [ "$NODE_MAJOR" -ge 18 ] || NODE='' ;; esac
+fi
+
+[ -n "$YT_DLP" ] || fail 'yt-dlp was not found. Run the macOS installer again.'
+[ -n "$FFMPEG" ] || fail 'FFmpeg was not found. Run the macOS installer again.'
+[ -n "$DENO" ] || [ -n "$NODE" ] || fail 'Neither Deno nor Node.js was found.'
+
+ANALYZER="$APP_DIR/analyze-audio.mjs"
+RESOLVER="$APP_DIR/resolve-song-metadata.mjs"
+HELPER="$APP_DIR/runtime-helper.mjs"
+need_file "$RESOLVER"
+need_file "$HELPER"
+
+runtime_run() {
+  if [ -n "$DENO" ]; then
+    "$DENO" run --quiet "--allow-read=$APP_DIR,$WORK_DIR" "$@"
+  else
+    "$NODE" "$@"
+  fi
+}
+
+if [ -n "$DENO" ]; then
+  YT_RUNTIME="deno:$DENO"
+else
+  YT_RUNTIME="node:$NODE"
+fi
+
+SONG_INFO=0
+QUERY_PARTS=()
+for argument in "$@"; do
+  if [ "$argument" = '-si' ]; then
+    SONG_INFO=1
+  else
+    QUERY_PARTS+=("$argument")
+  fi
+done
+
+if [ "${#QUERY_PARTS[@]}" -eq 0 ]; then
+  printf '%s\n' 'Usage: yt-seb [-si] <song title>'
+  printf '%s\n' 'Example: yt-seb september earth wind and fire'
+  printf '%s\n' 'Song info: yt-seb -si september earth wind and fire'
+  exit 2
+fi
+
+QUERY="${QUERY_PARTS[*]}"
+mkdir -p "$DOWNLOAD_DIR"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/yt-seb.XXXXXX")"
+cleanup() { rm -rf -- "$WORK_DIR"; }
+trap cleanup EXIT HUP INT TERM
+
+printf 'Searching YouTube for: %s\n' "$QUERY"
+SEARCH_SPEC="ytsearch${SEARCH_RESULT_COUNT}:$QUERY"
+SEARCH_OUTPUT="$WORK_DIR/search.txt"
+if ! "$YT_DLP" --js-runtimes "$YT_RUNTIME" --flat-playlist --playlist-end "$SEARCH_RESULT_COUNT" \
+  --skip-download --no-warnings --ignore-errors --print $'%(id)s\t%(title)s' \
+  "$SEARCH_SPEC" > "$SEARCH_OUTPUT"; then
+  fail 'The YouTube search failed.'
+fi
+
+SELECTED_LINE="$(sed -n '/[^[:space:]]/{p;q;}' "$SEARCH_OUTPUT")"
+[ -n "$SELECTED_LINE" ] || fail 'No usable videos were found.'
+TAB=$(printf '\t')
+VIDEO_ID=${SELECTED_LINE%%"$TAB"*}
+if [ "$SELECTED_LINE" = "$VIDEO_ID" ]; then
+  SELECTED_TITLE='Unknown title'
+else
+  SELECTED_TITLE=${SELECTED_LINE#*"$TAB"}
+fi
+case "$VIDEO_ID" in
+  *[!A-Za-z0-9_-]*|'') fail 'YouTube returned an invalid video identifier.' ;;
+esac
+[ "${#VIDEO_ID}" -eq 11 ] || fail 'YouTube returned an invalid video identifier.'
+VIDEO_URL="https://www.youtube.com/watch?v=$VIDEO_ID"
+
+if command -v pbcopy >/dev/null 2>&1; then printf '%s' "$VIDEO_URL" | pbcopy || true; fi
+printf 'Selected: %s\nURL:      %s\n' "$SELECTED_TITLE" "$VIDEO_URL"
+
+if [ "$SONG_INFO" -eq 0 ]; then
+  printf 'Saving to %s ...\n' "$DOWNLOAD_DIR"
+  "$YT_DLP" --js-runtimes "$YT_RUNTIME" --ffmpeg-location "$FFMPEG" \
+    -x --audio-format mp3 -P "$DOWNLOAD_DIR" --no-playlist "$VIDEO_URL"
+  printf '%s\n' 'File downloaded!'
+  exit 0
+fi
+
+need_file "$ANALYZER"
+METADATA_JSON="$WORK_DIR/metadata.json"
+RESOLVED_JSON="$WORK_DIR/resolved.json"
+printf '%s\n' 'Reading song metadata...'
+"$YT_DLP" --js-runtimes "$YT_RUNTIME" --dump-single-json --skip-download \
+  --no-warnings --no-playlist "$VIDEO_URL" > "$METADATA_JSON"
+runtime_run "$RESOLVER" --selected-title "$SELECTED_TITLE" \
+  < "$METADATA_JSON" > "$RESOLVED_JSON"
+
+SONG_TITLE="$(runtime_run "$HELPER" json-field "$RESOLVED_JSON" songTitle)"
+ARTIST="$(runtime_run "$HELPER" json-field "$RESOLVED_JSON" artist)"
+ARTIST_SOURCE="$(runtime_run "$HELPER" json-field "$RESOLVED_JSON" artistSource)"
+[ -n "$SONG_TITLE" ] || SONG_TITLE='Unknown Song'
+[ -n "$ARTIST" ] || ARTIST='Unknown Artist'
+printf 'Title:  %s\nArtist: %s (source: %s)\n' "$SONG_TITLE" "$ARTIST" "$ARTIST_SOURCE"
+
+printf '%s\n' 'Downloading audio for analysis...'
+"$YT_DLP" --js-runtimes "$YT_RUNTIME" --ffmpeg-location "$FFMPEG" \
+  -x --audio-format mp3 --no-playlist -o "$WORK_DIR/source.%(ext)s" "$VIDEO_URL"
+[ -f "$WORK_DIR/source.mp3" ] || fail 'The temporary MP3 was not created.'
+
+printf '%s\n' 'Estimating tempo and musical key locally...'
+"$FFMPEG" -y -hide_banner -loglevel error -i "$WORK_DIR/source.mp3" \
+  -ac 1 -ar 11025 -f f32le "$WORK_DIR/analysis.f32le"
+runtime_run "$ANALYZER" "$WORK_DIR/analysis.f32le" 11025 > "$WORK_DIR/analysis.json"
+TEMPO="$(runtime_run "$HELPER" json-field "$WORK_DIR/analysis.json" tempo)"
+KEY="$(runtime_run "$HELPER" json-field "$WORK_DIR/analysis.json" key)"
+case "$TEMPO" in *[!0-9]*|'') fail 'Audio analysis returned an invalid tempo.' ;; esac
+[ "$TEMPO" -ge 30 ] && [ "$TEMPO" -le 400 ] || fail 'Audio analysis returned an invalid tempo.'
+[ -n "$KEY" ] || fail 'Audio analysis returned an invalid key.'
+
+BASE_NAME="$(runtime_run "$HELPER" song-basename "$SONG_TITLE" "$ARTIST" "$TEMPO" "$KEY")"
+FINAL_PATH="$DOWNLOAD_DIR/$BASE_NAME.mp3"
+INDEX=2
+while [ -e "$FINAL_PATH" ]; do
+  FINAL_PATH="$DOWNLOAD_DIR/$BASE_NAME ($INDEX).mp3"
+  INDEX=$((INDEX + 1))
+  [ "$INDEX" -lt 10000 ] || fail 'Could not create a unique output filename.'
+done
+
+printf '%s\n' 'Writing ID3 metadata...'
+"$FFMPEG" -y -hide_banner -loglevel error -i "$WORK_DIR/source.mp3" \
+  -map 0:a:0 -c copy -id3v2_version 3 \
+  -metadata "title=$SONG_TITLE" -metadata "artist=$ARTIST" \
+  -metadata "album_artist=$ARTIST" -metadata 'album=YT-Seb' \
+  -metadata "TBPM=$TEMPO" -metadata "TKEY=$KEY" \
+  -metadata 'comment=Downloaded and analyzed locally with YT-Seb' \
+  -metadata 'encoded_by=YT-Seb' "$FINAL_PATH"
+[ -f "$FINAL_PATH" ] || fail 'FFmpeg could not write the final tagged MP3.'
+
+printf 'Tempo: %s BPM\nKey:   %s\nSaved: %s\n' "$TEMPO" "$KEY" "$FINAL_PATH"
