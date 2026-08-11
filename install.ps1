@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
-$SetupUrl = 'https://raw.githubusercontent.com/shinobiseb/yt-seb/main/dist/yt-seb%20Setup.exe'
-$ExpectedSha256 = '235cefead2b7002920dbfb215e0fdc9554a2df8c3e7a510b03171b79da14e3d6'
+$SetupUrl = 'https://raw.githubusercontent.com/shinobiseb/yt-seb/development/dist/yt-seb%20Setup.exe'
+$ExpectedSha256 = 'e5590ddff0b2845a09eff686e9cbd84538adcc2f1cd38ca30b4d69d480d1f229'
 $SetupPath = Join-Path $env:TEMP ("yt-seb-Setup-{0}.exe" -f [guid]::NewGuid())
 
 try {
@@ -20,6 +20,7 @@ try {
 finally {
     Remove-Item -LiteralPath $SetupPath -Force -ErrorAction SilentlyContinue
 }
+
 
 
 

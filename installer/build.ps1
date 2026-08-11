@@ -21,6 +21,7 @@ $Arguments = @(
     '/reference:System.IO.Compression.FileSystem.dll',
     "/resource:$(Join-Path $SourceRoot 'yt-seb.cmd'),payload.yt-seb.cmd",
     "/resource:$(Join-Path $SourceRoot 'yt-seb.ps1'),payload.yt-seb.ps1",
+    "/resource:$(Join-Path $SourceRoot 'analyze-audio.mjs'),payload.analyze-audio.mjs",
     "/resource:$(Join-Path $SourceRoot 'Uninstall-yt-seb.ps1'),payload.Uninstall-yt-seb.ps1",
     (Join-Path $PSScriptRoot 'InstallerSource.cs')
 )
