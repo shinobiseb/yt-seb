@@ -24,6 +24,11 @@ if ($CommandSource -notmatch '\$SearchResultCount\s*=\s*5') {
 if ($CommandSource -notmatch '\$Selected\s*=\s*\$Candidates\s*\|\s*Select-Object -First 1') {
     throw 'yt-seb must preserve YouTube relevance order.'
 }
+if ($CommandSource -notmatch "-si") {
+    throw 'The development command must implement the -si flag.'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'src\analyze-audio.mjs'))) {
+    throw 'The local audio analyzer is missing.'
+}
 
 Write-Host 'Static tests passed.' -ForegroundColor Green
-

@@ -178,6 +178,7 @@ internal static class Program
             report("Preparing a private staging folder.");
             ExtractResource("payload.yt-seb.cmd", Path.Combine(stage, "yt-seb.cmd"));
             ExtractResource("payload.yt-seb.ps1", Path.Combine(stage, "yt-seb.ps1"));
+            ExtractResource("payload.analyze-audio.mjs", Path.Combine(stage, "analyze-audio.mjs"));
             ExtractResource("payload.Uninstall-yt-seb.ps1", Path.Combine(stage, "Uninstall-yt-seb.ps1"));
 
             string ytDlp = Path.Combine(stage, "yt-dlp.exe");
@@ -218,7 +219,7 @@ internal static class Program
             report("All downloads succeeded. Installing files to " + target);
             Directory.CreateDirectory(target);
             foreach (string name in new[] {
-                "yt-seb.cmd", "yt-seb.ps1", "Uninstall-yt-seb.ps1",
+                "yt-seb.cmd", "yt-seb.ps1", "analyze-audio.mjs", "Uninstall-yt-seb.ps1",
                 "yt-dlp.exe", "ffmpeg.exe", "deno.exe",
                 "DEPENDENCY-HASHES.txt", "INSTALLATION.txt" })
                 File.Copy(Path.Combine(stage, name), Path.Combine(target, name), true);
@@ -299,4 +300,3 @@ internal static class Program
         SendMessageTimeout(new IntPtr(0xffff), 0x001A, UIntPtr.Zero, "Environment", 0x0002, 5000, out result);
     }
 }
-

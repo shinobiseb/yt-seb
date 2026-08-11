@@ -1,16 +1,16 @@
-# yt-seb
+# yt-seb — development branch
 
 `yt-seb` is a Windows command-line YouTube song downloader. Enter a song title
 and it searches YouTube's top five relevance-ranked results, selects the first
 usable result, copies its URL to the clipboard, and saves MP3 audio in your
 Music folder.
 
-## Install on Windows
+## Install the development build on Windows
 
 Open PowerShell and run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Join-Path $env:TEMP 'yt-seb-install.ps1'; Invoke-WebRequest 'https://raw.githubusercontent.com/shinobiseb/yt-seb/main/install.ps1' -OutFile $p; & $p"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Join-Path $env:TEMP 'yt-seb-install.ps1'; Invoke-WebRequest 'https://raw.githubusercontent.com/shinobiseb/yt-seb/development/install.ps1' -OutFile $p; & $p"
 ```
 
 This command downloads the repository's [`install.ps1`](install.ps1) to a
@@ -38,6 +38,29 @@ yt-seb september earth wind and fire
 
 The selected link is copied to the clipboard and the MP3 is saved under your
 Windows Music folder.
+
+## Experimental song information mode
+
+Use `-si` to estimate tempo and musical key locally and write song metadata:
+
+```powershell
+yt-seb -si september earth wind and fire
+```
+
+The resulting MP3 is named using this layout:
+
+```text
+Song Title │ Artist │ 120 BPM │ Found Key │ [YT-Seb].mp3
+```
+
+Windows forbids the ASCII pipe character (`|`) in filenames, so yt-seb uses the
+visually equivalent Unicode separator `│`. The MP3 receives ID3 title, artist,
+album (`YT-Seb`), tempo, initial-key, comment, and encoder metadata.
+
+Tempo and key are estimates derived from up to two minutes of the downloaded
+audio. Half-time/double-time rhythm, key changes, live recordings, or noisy
+audio can produce imperfect results. No song audio is uploaded to an analysis
+service.
 
 ## What Setup changes
 
@@ -71,4 +94,3 @@ for complying with YouTube's terms, copyright law, and applicable local law.
 
 The yt-seb source is available under the [MIT License](LICENSE). Third-party
 tools downloaded by Setup remain governed by their respective licenses.
-
