@@ -10,7 +10,7 @@ Music folder.
 Open PowerShell and run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Join-Path $env:TEMP 'yt-seb-install.ps1'; Invoke-WebRequest 'https://raw.githubusercontent.com/shinobiseb/yt-seb/development/install.ps1' -OutFile $p; & $p"
+$p=Join-Path $env:TEMP 'yt-seb-install.ps1'; Invoke-WebRequest 'https://raw.githubusercontent.com/shinobiseb/yt-seb/development/install.ps1' -OutFile $p; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
 ```
 
 This command downloads the repository's [`install.ps1`](install.ps1) to a
@@ -55,20 +55,27 @@ Song Title │ Artist │ 120 BPM │ Found Key │ [YT-Seb].mp3
 
 Windows forbids the ASCII pipe character (`|`) in filenames, so yt-seb uses the
 visually equivalent Unicode separator `│`. The MP3 receives ID3 title, artist,
-album (`YT-Seb`), tempo, initial-key, comment, and encoder metadata.
+album artist, album (`YT-Seb`), tempo, initial-key, comment, and encoder
+metadata.
 
 Tempo and key are estimates derived from up to two minutes of the downloaded
 audio. Half-time/double-time rhythm, key changes, live recordings, or noisy
 audio can produce imperfect results. No song audio is uploaded to an analysis
 service.
 
+Artist attribution is resolved from structured yt-dlp metadata, decorated video
+titles, and cleaned channel fallbacks. Featured credits such as `ft.`, `feat.`,
+and `featuring` are moved into the Artist tag and removed from the song title.
+See [Artist metadata and `-si` behavior](docs/ARTIST-METADATA.md) for resolution
+rules, examples, validation, and troubleshooting.
+
 ## What Setup changes
 
 After explicit consent, Setup:
 
 - installs to `%LOCALAPPDATA%\Programs\yt-seb`;
-- downloads private copies of yt-dlp, FFmpeg, and Deno over HTTPS from their
-  official release locations;
+- downloads private copies of yt-dlp and Deno from their official HTTPS release
+  locations, plus a Windows FFmpeg build from the gyan.dev build provider;
 - adds the installation folder to the current user's `PATH`; and
 - registers a per-user uninstaller.
 
